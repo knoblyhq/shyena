@@ -1,0 +1,34 @@
+rules:
+  - id: shyena.javascript.innerhtml-assignment
+    message: >-
+      Assigning a non-literal to innerHTML renders it as HTML. If any part comes from
+      a user, a URL or an API response, this is DOM XSS. Use textContent, or build
+      elements with createElement / setAttribute.
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-79: Improper Neutralization of Input During Web Page Generation"
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern: $EL.innerHTML = $X
+          - pattern: $EL.outerHTML = $X
+          - pattern: $EL.insertAdjacentHTML($POS, $X)
+      - pattern-not: $EL.innerHTML = "..."
+      - pattern-not: $EL.outerHTML = "..."
+      - pattern-not: $EL.insertAdjacentHTML($POS, "...")
+
+  - id: shyena.javascript.eval
+    message: >-
+      eval() / new Function() execute strings as code. Remove them; use JSON.parse for
+      data and plain functions for logic.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      confidence: HIGH
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)

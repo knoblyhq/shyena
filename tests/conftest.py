@@ -25,6 +25,21 @@ def isolated_home(tmp_path, monkeypatch):
     return home
 
 
+@pytest.fixture(autouse=True)
+def no_external_tools(request, monkeypatch):
+    """The suite must behave the same whether or not engines are installed on this
+    machine: pretend none are. Tests marked ``real_tools`` opt out."""
+    if "real_tools" in request.keywords:
+        return
+    from shyena.probes.base import CodeProbe
+
+    monkeypatch.setattr(CodeProbe, "is_available", lambda self: bool(self.pure_python))
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "real_tools: runs the installed engine binaries for real")
+
+
 def git(root: Path, *args: str) -> str:
     import os
 

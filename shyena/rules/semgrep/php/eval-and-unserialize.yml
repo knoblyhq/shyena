@@ -1,0 +1,36 @@
+rules:
+  - id: shyena.php.eval
+    message: >-
+      eval() executes a string as PHP. Any way for input to reach it is remote code
+      execution. Replace it with explicit logic or a safe expression library.
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      confidence: HIGH
+    pattern: eval(...)
+
+  - id: shyena.php.unserialize-request
+    mode: taint
+    message: >-
+      unserialize() on request data lets an attacker instantiate arbitrary classes
+      (PHP object injection). Use json_decode() for data from clients.
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      references:
+        - https://www.php.net/manual/en/function.unserialize.php
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+    pattern-sinks:
+      - patterns:
+          - pattern: unserialize($X, ...)
+          - focus-metavariable: $X

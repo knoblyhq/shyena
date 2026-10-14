@@ -1,0 +1,54 @@
+rules:
+  - id: shyena.php.file-inclusion-taint
+    mode: taint
+    message: >-
+      Request data decides which file is included or read. An attacker can pick any
+      path on disk (or a remote URL when allow_url_include is on). Map the input to a
+      fixed allow-list of files instead.
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-98: Improper Control of Filename for Include/Require Statement in PHP Program"
+      confidence: HIGH
+      references:
+        - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/11.1-Testing_for_Local_File_Inclusion
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: basename(...)
+          - pattern: intval(...)
+          - pattern: (int) $X
+          - pattern: realpath(...)
+    pattern-sinks:
+      - patterns:
+          # A sink guarded by a shape or allow-list check on the way in is not reported.
+          # (Semgrep's by-side-effect sanitisers do not fire for PHP, so guard the sink.)
+          - pattern-not-inside: |
+              if (<... preg_match(...) ...>) { ... }
+          - pattern-not-inside: |
+              if (<... in_array(...) ...>) { ... }
+          - pattern-not-inside: |
+              if (<... array_key_exists(...) ...>) { ... }
+          - pattern-not-inside: |
+              if (<... ctype_alnum(...) ...>) { ... }
+          - pattern-not-inside: |
+              if (<... is_numeric(...) ...>) { ... }
+          - pattern-not-inside: |
+              if (<... isset($ALLOWED[$X]) ...>) { ... }
+          - pattern-either:
+              - pattern: include $F;
+              - pattern: include_once $F;
+              - pattern: require $F;
+              - pattern: require_once $F;
+              - pattern: file_get_contents($F, ...)
+              - pattern: fopen($F, ...)
+              - pattern: readfile($F, ...)
+              - pattern: file($F, ...)
+              - pattern: unlink($F, ...)
+          - focus-metavariable: $F

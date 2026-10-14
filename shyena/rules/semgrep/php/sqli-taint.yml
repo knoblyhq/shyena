@@ -1,0 +1,54 @@
+rules:
+  - id: shyena.php.sqli-taint
+    mode: taint
+    message: >-
+      Request data reaches a SQL query without a parameter binding or escaping.
+      Use a prepared statement with bound parameters; never build SQL from $_GET, $_POST,
+      $_REQUEST or $_COOKIE values.
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      confidence: HIGH
+      references:
+        - https://www.php.net/manual/en/mysqli.quickstart.prepared-statements.php
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: intval(...)
+          - pattern: floatval(...)
+          - pattern: (int) $X
+          - pattern: (float) $X
+          - pattern: mysqli_real_escape_string(...)
+          - pattern: $C->real_escape_string(...)
+          - pattern: $C->quote(...)
+    pattern-sinks:
+      - patterns:
+          # A sink guarded by a shape or allow-list check on the way in is not reported.
+          # (Semgrep's by-side-effect sanitisers do not fire for PHP, so guard the sink.)
+          - pattern-not-inside: |
+              if (<... preg_match(...) ...>) { ... }
+          - pattern-not-inside: |
+              if (<... in_array(...) ...>) { ... }
+          - pattern-not-inside: |
+              if (<... array_key_exists(...) ...>) { ... }
+          - pattern-not-inside: |
+              if (<... ctype_alnum(...) ...>) { ... }
+          - pattern-not-inside: |
+              if (<... is_numeric(...) ...>) { ... }
+          - pattern-either:
+              - pattern: mysqli_query($C, $Q, ...)
+              - pattern: mysqli_multi_query($C, $Q)
+              - pattern: mysqli_prepare($C, $Q)
+              - pattern: mysql_query($Q, ...)
+              - pattern: $C->query($Q, ...)
+              - pattern: $C->multi_query($Q)
+              - pattern: $C->exec($Q)
+              - pattern: $C->prepare($Q, ...)
+          - focus-metavariable: $Q

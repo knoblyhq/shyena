@@ -9,7 +9,7 @@ from pathlib import Path
 
 from shyena.models import Category, CodeFinding, Location, Severity
 from shyena.probes.base import CodeProbe, ProbeOutput, ScanContext
-from shyena.repo import rel
+from shyena.repo import IGNORED_DIRS, rel
 
 # Lizard CSV columns: NLOC, CCN, token, PARAM, length, location, file, function, long_name, start, end
 
@@ -29,6 +29,8 @@ class LizardProbe(CodeProbe):
         limit = float(ctx.policy.get("new_code", {}).get("complexity_max_per_function", 15))
         args = ["--csv"]
         if ctx.depth.whole_tree:
+            for ignored in sorted(IGNORED_DIRS):
+                args += ["-x", f"*/{ignored}/*"]
             args.append(str(ctx.repo.root))
         else:
             files = ctx.source_files_in_scope()

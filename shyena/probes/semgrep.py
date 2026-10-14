@@ -4,12 +4,14 @@ rule set (``shyena/rules/semgrep``), never the Semgrep registry. Rules tagged
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from shyena.config import rules_dir
-from shyena.models import Category
+from shyena.models import Category, CodeFinding
 from shyena.probes.base import CodeProbe, ProbeOutput, ScanContext
+from shyena.repo import IGNORED_DIRS
 
 
 def categorise(rule_id: str, rule: dict[str, Any], props: dict[str, Any]) -> Category:
@@ -45,6 +47,8 @@ class SemgrepProbe(CodeProbe):
         for r in rules:
             args += ["--config", r]
         if ctx.depth.whole_tree:
+            for ignored in sorted(IGNORED_DIRS):
+                args += ["--exclude", ignored]
             args.append(str(ctx.repo.root))
         else:
             files = ctx.source_files_in_scope()
@@ -54,5 +58,24 @@ class SemgrepProbe(CodeProbe):
         proc = self.exec(args, cwd=ctx.repo.root)
         if not out_path.exists():
             raise RuntimeError(f"semgrep exited {proc.returncode}: {proc.stderr.strip()[:500]}")
-        findings = self.findings_from_sarif_file(out_path, ctx, categorise=categorise)
+        findings = [tidy(f) for f in self.findings_from_sarif_file(out_path, ctx, categorise=categorise)]
         return ProbeOutput(findings=findings, metrics={"sast_findings": float(len(findings))})
+
+
+_FIRST_SENTENCE = re.compile(r"^(.*?[.!?])(\s|$)", re.DOTALL)
+
+
+def tidy(f: CodeFinding) -> CodeFinding:
+    """Semgrep prefixes rule ids with the config path (``D.shyena.shyena.rules…``) and
+    titles every result "Semgrep Finding: <id>". Use our id and the rule's message."""
+    raw = f.rule_id.split(":", 1)[-1]
+    # The path prefix can itself contain "shyena." (D.shyena.shyena.rules.semgrep.php.…);
+    # the real id is the last "shyena." onwards.
+    if "shyena." in raw:
+        raw = raw[raw.rfind("shyena.") :]
+    f.rule_id = f"semgrep:{raw}"
+    if f.title.lower().startswith("semgrep finding") or f.title == raw:
+        text = " ".join(f.description.split())
+        m = _FIRST_SENTENCE.match(text)
+        f.title = (m.group(1) if m else text)[:140] or raw.rsplit(".", 1)[-1]
+    return f

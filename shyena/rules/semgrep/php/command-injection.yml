@@ -1,0 +1,40 @@
+rules:
+  - id: shyena.php.command-injection
+    mode: taint
+    message: >-
+      Request data reaches a shell command. Avoid shelling out with user input; if you
+      must, pass each argument through escapeshellarg() and never interpolate into the
+      command string.
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      confidence: HIGH
+      references:
+        - https://www.php.net/manual/en/function.escapeshellarg.php
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+          - pattern: $_FILES
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: escapeshellarg(...)
+          - pattern: escapeshellcmd(...)
+          - pattern: intval(...)
+          - pattern: (int) $X
+          - pattern: basename(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: shell_exec($C)
+              - pattern: exec($C, ...)
+              - pattern: system($C, ...)
+              - pattern: passthru($C, ...)
+              - pattern: popen($C, ...)
+              - pattern: proc_open($C, ...)
+              - pattern: pcntl_exec($C, ...)
+          - focus-metavariable: $C
