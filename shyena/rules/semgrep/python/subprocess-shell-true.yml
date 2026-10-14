@@ -1,0 +1,17 @@
+rules:
+  - id: shyena.python.subprocess-shell-true
+    message: >-
+      subprocess is called with shell=True. If any part of the command comes from
+      input, this is an OS command injection. Pass a list of arguments and drop shell=True.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      confidence: HIGH
+      references:
+        - https://docs.python.org/3/library/subprocess.html#security-considerations
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$FUNC(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)

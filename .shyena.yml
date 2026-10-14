@@ -1,0 +1,62 @@
+# Shyena policy — the gate a change must pass, and how deep each scan goes.
+# Lives at the repository root; only the default branch's copy is honoured for the gate.
+version: 1
+name: default
+
+# Clean as you code: only NEW findings on changed lines count toward the gate.
+new_code:
+  vulnerabilities:
+    critical: 0
+    high: 0
+  secrets: 0
+  dependency_vulns:
+    critical: 0
+    high_with_fix: 0        # high severity only blocks when a fixed version exists
+  smells:
+    blocker: 0
+  coverage_min_percent: 80
+  duplication_max_percent: 3
+  complexity_max_per_function: 15
+
+licences:
+  production:
+    deny: [strong_copyleft, network_copyleft, unknown]
+    warn: [weak_copyleft]
+  development:
+    deny: [network_copyleft]
+  exceptions: []
+  # - purl: pkg:npm/some-gpl-tool
+  #   reason: build-time only, never shipped
+  #   expires: 2027-03-31
+
+compatibility:
+  fail_on_eol_runtime: true
+  warn_on_eol_within_days: 180
+  max_libyear_per_dependency: 3
+
+triage:
+  ai_threshold: medium        # findings at or above go to AI triage
+  demote_on_ai_false_positive: true
+  ai_can_block: false         # AI never turns a pass into a fail
+
+deep_pass:
+  block_on_taint_high: true   # deep findings attributed to this PR's commits do block
+
+# Depth: which preset runs on which trigger, plus per-project overrides of the presets.
+depth:
+  on_pull_request: standard
+  on_default_branch: deep
+  on_release_tag: audit
+  profiles:
+    standard:
+      taint: { mode: cross_file_cached, max_call_depth: 4 }
+      dependencies: transitive
+      secrets_history: since_base
+      ai_triage: { when: new_above, threshold: medium }
+      budget_minutes: 10
+    audit:
+      extends: deep
+      licences: per_file
+      branches: [main, release/*]
+      ai_triage: { when: all, summary: executive }
+      budget_minutes: null

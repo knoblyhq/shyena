@@ -1,5 +1,12 @@
 __pycache__/
 *.pyc
+*.egg-info/
 .env
 .venv/
 node_modules/
+runs/
+grc/
+shyena/states/
+.pytest_cache/
+build/
+dist/
