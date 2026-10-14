@@ -89,14 +89,38 @@ shyena/
 tests/           pytest, no engines or network needed
 ```
 
+## Handing a scan to the repository's own session
+
+A scan is most useful in the hands of whoever works on that codebase. Write a short
+handoff next to the run (what was scanned, the gate result, where the files are, which
+findings were checked by eye and which were not, how to re-scan and mark findings),
+keep a copy under `docs/handoffs/`, and start a Claude session in the target repository
+with "read the handoff first; verify the high findings before changing code".
+
+`docs/handoffs/pilot-app-2026-10-14.md` is the first one: the pilot app, 341 findings, gate
+FAIL on 10 high vulnerabilities and 51 blocker-complexity functions.
+
 ## Phase 0 status
 
 Built and tested: the contract (`CodeProbe`, `ScanContext`, `ProbeOutput`), the
 finding model, fingerprints, SARIF in/out, eight probe adapters, the licence policy
 engine, depth presets, gate evaluation, lifecycle and reviewer decisions, reports,
-the CLI. Verified end-to-end on a repository with only the pure-Python probes.
+the CLI, and nine Semgrep rules of our own (PHP, JavaScript, Python).
 
-Not yet exercised against real engine output: the Syft, Grype, Trivy, Gitleaks,
-Lizard and jscpd adapters need the binaries installed and a run on a real repository.
-Next: install the engines, scan one of our own repositories, then the Claude / Ollama
-triage providers and the API server (Phase 1).
+Verified against live engine output: Semgrep and Lizard, on a vulnerable fixture
+(`tests/test_real_engines.py`, runs when the binaries are present) and on the pilot app
+(600 files, about 30 seconds). The test suite otherwise pretends no engines are
+installed, so it passes on a bare machine.
+
+Not yet exercised against live output: the Syft, Grype, Trivy, Gitleaks and jscpd
+adapters. Next: install those, re-scan the pilot app for dependencies and secrets, then the
+Claude / Ollama triage providers and the API server (Phase 1).
+
+### Things learned on Windows
+
+- Semgrep's `by-side-effect: true` sanitisers do not fire for PHP (1.180), so the
+  rules guard sinks with `pattern-not-inside: if (<... preg_match(...) ...>) { ... }`.
+- Semgrep prefixes rule ids with the config directory path; the probe strips it back
+  to `shyena.<lang>.<rule>`.
+- The cp1252 console cannot print arrows or ticks; CLI output is ASCII, and a failing
+  progress hook never aborts a scan.
