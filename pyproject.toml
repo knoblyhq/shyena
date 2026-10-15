@@ -7,7 +7,7 @@ name = "shyena"
 version = "0.0.1"
 description = "Shyena — code profiler for vulnerabilities, licences, compatibility and code smell (Knobly GRC code module)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "Knobly" }]
 keywords = ["sast", "sca", "sbom", "licence", "code-quality", "sarif"]
