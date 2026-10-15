@@ -26,17 +26,17 @@ Engines are open-source binaries invoked as processes; a missing one skips clean
 and the report says so. Locations resolve from `VAPT_<NAME>_PATH`, then `tools.json`
 in the state directory, then `PATH`.
 
-| Engine | Dimension | Install |
-| --- | --- | --- |
-| Syft | SBOM (runs first) | https://github.com/anchore/syft |
-| Semgrep | code vulnerabilities, our rules in `shyena/rules/semgrep` | `pip install semgrep` |
-| Grype | dependency vulnerabilities over the SBOM | https://github.com/anchore/grype |
-| Trivy | Dockerfile / Terraform / Kubernetes misconfiguration | https://trivy.dev |
-| Gitleaks | secrets (value never stored, only its hash) | https://github.com/gitleaks/gitleaks |
-| Lizard | cyclomatic complexity | `pip install lizard` |
-| jscpd | duplication | `npm i -g jscpd` |
-| manifests | runtime versions + end-of-life (endoflife.date) | built in |
-| licence-policy | licence compatibility over the SBOM | built in |
+| Engine | Dimension | Install | Status |
+| --- | --- | --- | --- |
+| Syft | SBOM (runs first) | `winget install Anchore.Syft` / brew / apt | proven on the pilot app |
+| Semgrep | code vulnerabilities, our rules in `shyena/rules/semgrep` | `pip install semgrep` | proven on the pilot app |
+| Grype | dependency vulnerabilities over the SBOM | `winget install Anchore.Grype` / brew / apt | proven on the pilot app |
+| Trivy | Dockerfile / Terraform / Kubernetes misconfiguration | `winget install AquaSecurity.Trivy` / brew / apt | proven on a Dockerfile + Terraform fixture |
+| Gitleaks | secrets (value never stored, only its hash) | `winget install Gitleaks.Gitleaks` / brew | proven on the pilot app history |
+| Lizard | cyclomatic complexity | `pip install lizard` | proven on the pilot app |
+| jscpd | duplication | `npm i -g jscpd` | adapter unit-tested only |
+| manifests | runtime versions + end-of-life (endoflife.date) | built in | proven |
+| licence-policy | licence compatibility over the SBOM | built in | proven |
 
 ## Usage
 
@@ -107,16 +107,23 @@ finding model, fingerprints, SARIF in/out, eight probe adapters, the licence pol
 engine, depth presets, gate evaluation, lifecycle and reviewer decisions, reports,
 the CLI, and nine Semgrep rules of our own (PHP, JavaScript, Python).
 
-Verified against live engine output: Semgrep and Lizard, on a vulnerable fixture
-(`tests/test_real_engines.py`, runs when the binaries are present) and on the pilot app
-(600 files, about 30 seconds). The test suite otherwise pretends no engines are
-installed, so it passes on a bare machine.
+Verified against live engine output: Semgrep, Lizard, Syft, Grype and Gitleaks on
+the pilot app (600 files; about 30 seconds at standard depth, 3.5 minutes at deep depth where
+Gitleaks walks the whole history), Trivy on a Dockerfile + Terraform fixture (the pilot app
+has no container or IaC files for it to judge), and Semgrep + Lizard on the vulnerable
+fixture in `tests/test_real_engines.py`, which runs when the binaries are present. The
+test suite otherwise pretends no engines are installed, so it passes on a bare machine.
 
-Not yet exercised against live output: the Syft, Grype, Trivy, Gitleaks and jscpd
-adapters. Next: install those, re-scan the pilot app for dependencies and secrets, then the
-Claude / Ollama triage providers and the API server (Phase 1).
+Not yet exercised against live output: the jscpd adapter. Next: the Claude / Ollama
+triage providers and the API server (Phase 1).
 
 ### Things learned on Windows
+
+- Grype's vulnerability database is about 3 GB and Trivy's checks bundle a few hundred
+  MB; on a full C: drive point `GRYPE_DB_CACHE_DIR` and `TRIVY_CACHE_DIR` at another
+  disk (`setx`), otherwise the first scan fails mid-download.
+- winget installs put their aliases in `%LOCALAPPDATA%\Microsoft\WinGet\Links`; a
+  shell started before the install, or a non-login Git Bash, may not have it on PATH.
 
 - Semgrep's `by-side-effect: true` sanitisers do not fire for PHP (1.180), so the
   rules guard sinks with `pattern-not-inside: if (<... preg_match(...) ...>) { ... }`.
