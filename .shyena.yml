@@ -19,9 +19,10 @@ new_code:
   complexity_max_per_function: 15
 
 licences:
+  # unknown = licence text we could not classify; undeclared = no licence metadata at all
   production:
     deny: [strong_copyleft, network_copyleft, unknown]
-    warn: [weak_copyleft]
+    warn: [weak_copyleft, undeclared]
   development:
     deny: [network_copyleft]
   exceptions: []

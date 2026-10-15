@@ -64,8 +64,8 @@ def test_repo_policy_file_in_this_repo_loads():
         ("GPL-2.0-only WITH Classpath-exception-2.0", "strong_copyleft"),
         ("BUSL-1.1", "proprietary"),
         ("SomethingMadeUp", "unknown"),
-        (None, "unknown"),
-        ("", "unknown"),
+        (None, "undeclared"),
+        ("", "undeclared"),
     ],
 )
 def test_categorise_licence(expr, category):
@@ -87,6 +87,7 @@ def test_licence_findings_follow_scope_and_exceptions():
         Component("pkg:npm/expired-tool@2", "expired-tool", "2", "npm", licence_declared="GPL-3.0-only"),
         Component("pkg:npm/fine@1", "fine", "1", "npm", licence_declared="MIT"),
         Component("pkg:npm/nolicence@1", "nolicence", "1", "npm"),
+        Component("pkg:npm/odd@1", "odd", "1", "npm", licence_declared="SomethingMadeUp"),
     ]
     findings = policy.licence_findings(p, comps, "repo", today=date(2026, 10, 14))
     by_name = {f.component.split("/")[-1].split("@")[0]: f for f in findings}
@@ -99,7 +100,9 @@ def test_licence_findings_follow_scope_and_exceptions():
     assert "gpl-tool" not in by_name  # live exception
     assert by_name["expired-tool"].rule_id == "shyena:licence.deny"  # expired exception ignored
     assert "fine" not in by_name
-    assert by_name["nolicence"].rule_id == "shyena:licence.deny"  # unknown is denied in production
+    assert by_name["nolicence"].rule_id == "shyena:licence.warn"  # no metadata: a warning, not a block
+    assert "no licence metadata" in by_name["nolicence"].title
+    assert by_name["odd"].rule_id == "shyena:licence.deny"  # unclassifiable licence text is denied
     assert all(f.category is Category.LICENCE for f in findings)
 
 

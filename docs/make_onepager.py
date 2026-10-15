@@ -126,7 +126,7 @@ def build() -> Path:
     p.paragraph_format.space_after = Pt(0)
     para(doc, "श्येन · the sharp-eyed hawk  |  Code profiler for vulnerabilities, dependencies, licences, secrets, smell and compatibility",
          size=9.5, color=MUTED, after=2)
-    para(doc, "Knobly GRC · code module  |  Phase 0 build, 15 October 2026  |  Prashanth Hebbar", size=8.5, color=MUTED, after=6)
+    para(doc, "Knobly GRC · code module", size=8.5, color=MUTED, after=6)
 
     # Lead
     p = para(doc, after=6)
@@ -134,7 +134,9 @@ def build() -> Path:
         ("One scan, six verdicts. ", True),
         ("Shyena profiles a repository the way a security auditor and a code reviewer would together: it runs the best "
          "open-source engines in one pass, normalises everything into one finding model, and judges only the code that "
-         "changed. A pull request passes or fails on new findings in its own lines, never on legacy debt.", False),
+         "changed. A pull request passes or fails on new findings in its own lines, never on legacy debt. "
+         "It scans generated code the same way as hand-written code, so output from AI coding assistants is checked "
+         "before it is merged.", False),
     ], size=10)
 
     # Two-column table: what it checks | how it works
@@ -183,21 +185,21 @@ def build() -> Path:
 
     heading(doc, "Where it stands")
     bullet(doc, "Probe contract, finding model, fingerprints, SARIF, policy gate, depth presets, reviewer decisions, reports and CLI. 60 automated tests.", "Built.")
-    bullet(doc, "Semgrep and Lizard run live. First real scan: one of our own PHP + Python applications, about 600 files, in 30 seconds: 341 findings, 10 high-severity, gate FAIL with the reasons listed. Handed to that team to verify.", "Proven.")
-    bullet(doc, "Syft, Grype, Trivy, Gitleaks and jscpd adapters are written and unit-tested but not yet run against live output. AI triage ships with a null provider; Claude and Ollama providers come next.", "Next.")
+    bullet(doc, "Semgrep, Lizard, Syft and Grype run live. First real scan: one of our own PHP + Python applications, about 600 files, under a minute: 341 code findings plus 66 packages in the SBOM with 3 known vulnerabilities, gate FAIL with the reasons listed. Handed to that team to verify.", "Proven.")
+    bullet(doc, "Trivy, Gitleaks and jscpd adapters are written and unit-tested but not yet run against live output. AI triage ships with a null provider; Claude and Ollama providers come next.", "Next.")
 
     heading(doc, "Get it")
     p = para(doc, after=3)
     runs(p, [
         ("Repository: ", True),
         ("github.com/knoblyhq/shyena", False),
-        ("  (private, Knobly organisation; ask Prashanth for access). ", False),
-        ("Requires Python 3.11 or newer and the Knobly GRC core package.", False),
+        (".  Requires Python 3.11 or newer and the Knobly GRC core package.", False),
     ], size=9.5)
     mono(doc, [
         "git clone https://github.com/knoblyhq/shyena.git",
         "pip install -e <path-to-grc-core>  &&  pip install -e shyena[dev]",
-        "pip install semgrep lizard            # the two engines proven so far",
+        "pip install semgrep lizard            # engines proven so far, plus:",
+        "winget install Anchore.Syft Anchore.Grype   (brew / apt equivalents on Mac and Linux)",
         "shyena tools                          # which engines are installed",
         "shyena scan <repo>                    # first scan: whole tree; then --base origin/main for a PR",
     ])
@@ -210,7 +212,7 @@ def build() -> Path:
     ], size=9.5)
 
     # Footer line
-    p = para(doc, "Knobly · Bengaluru · prashanth@knobly.com · github.com/knoblyhq/shyena", size=8, color=MUTED, before=8, after=0, align=WD_ALIGN_PARAGRAPH.LEFT)
+    p = para(doc, "Knobly · Bengaluru · knobly.com · github.com/knoblyhq/shyena", size=8, color=MUTED, before=8, after=0, align=WD_ALIGN_PARAGRAPH.LEFT)
 
     doc.save(OUT)
     return OUT

@@ -33,7 +33,9 @@ DEFAULT_POLICY: dict[str, Any] = {
         "complexity_max_per_function": 15,
     },
     "licences": {
-        "production": {"deny": ["strong_copyleft", "network_copyleft", "unknown"], "warn": ["weak_copyleft"]},
+        # "unknown" = a licence text we could not classify; "undeclared" = no licence
+        # metadata at all (common for requirements.txt scans), a warning by default.
+        "production": {"deny": ["strong_copyleft", "network_copyleft", "unknown"], "warn": ["weak_copyleft", "undeclared"]},
         "development": {"deny": ["network_copyleft"], "warn": []},
         "exceptions": [],
     },
@@ -64,7 +66,8 @@ LICENCE_CATEGORY_ORDER = [
     "strong_copyleft",
     "network_copyleft",
     "proprietary",
-    "unknown",
+    "unknown",  # a licence string we could not classify
+    "undeclared",  # no licence metadata for the package at all
 ]
 
 #: SPDX id (lower-cased, version suffixes like ``-only``/``-or-later`` stripped) -> category.
@@ -175,9 +178,10 @@ class _SpdxParser:
 
 def categorise_licence(expression: str | None) -> str:
     """Category of an SPDX expression. ``A OR B`` takes the most permissive branch,
-    ``A AND B`` the most restrictive; anything unrecognised is ``unknown``."""
+    ``A AND B`` the most restrictive; anything unrecognised is ``unknown``; no
+    expression at all is ``undeclared``."""
     if not expression or not expression.strip():
-        return "unknown"
+        return "undeclared"
     parser = _SpdxParser(expression.strip())
     if not parser.tokens:
         return "unknown"
@@ -282,17 +286,29 @@ def licence_findings(policy: dict[str, Any], components: list[Component], target
             continue
         comp = v.component
         scope = "development" if comp.dev else "production"
+        if v.category == "undeclared":
+            title = f"{comp.name}@{comp.version or '?'} has no licence metadata (undeclared)"
+            description = (
+                f"The SBOM carries no licence for this package, so it is on the {scope} {v.action} list as 'undeclared'. "
+                "Manifest-only scans (requirements.txt without installed packages) often lack licence data; "
+                "scan with the packages installed, or add a lockfile, to resolve it."
+            )
+            remediation = "Install the dependencies before scanning, or record the licence in a dated exception in .shyena.yml."
+        else:
+            title = f"{comp.name}@{comp.version or '?'} is {comp.licence or 'unlicensed'} ({v.category})"
+            description = (
+                f"Licence category '{v.category}' is on the {scope} {v.action} list. "
+                f"Declared: {comp.licence_declared or '-'}; detected: {comp.licence_detected or '-'}."
+            )
+            remediation = "Replace the package, move it to development-only use, or add a dated exception to .shyena.yml with a reason."
         findings.append(
             CodeFinding(
-                title=f"{comp.name}@{comp.version or '?'} is {comp.licence or 'unlicensed'} ({v.category})",
+                title=title,
                 severity=Severity.HIGH if v.action == "deny" else Severity.LOW,
                 target=target,
                 probe="licence-policy",
-                description=(
-                    f"Licence category '{v.category}' is on the {scope} {v.action} list. "
-                    f"Declared: {comp.licence_declared or '-'}; detected: {comp.licence_detected or '-'}."
-                ),
-                remediation="Replace the package, move it to development-only use, or add a dated exception to .shyena.yml with a reason.",
+                description=description,
+                remediation=remediation,
                 rule_id=f"shyena:licence.{v.action}",
                 category=Category.LICENCE,
                 component=comp.purl,

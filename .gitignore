@@ -10,3 +10,4 @@ shyena/states/
 .pytest_cache/
 build/
 dist/
+.cache/
