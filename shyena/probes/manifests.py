@@ -1,7 +1,8 @@
 """Runtime and framework detector, plus end-of-life status.
 
 Reads manifests and lockfiles for the runtimes a project declares (Python, Node, PHP,
-Go, Ruby, Java, Docker base images), records them in the inventory, and looks each up
+Go, Ruby, Java, Docker base images) and the frameworks that have their own support
+windows (Spring Boot), records them in the inventory, and looks each up
 on endoflife.date unless ``SHYENA_OFFLINE`` is set. End-of-life runtimes become
 ``compatibility`` findings; ones ending within the policy window become warnings.
 """
@@ -27,6 +28,19 @@ _GO_DIRECTIVE = re.compile(r"^go\s+(\d+\.\d+)", re.MULTILINE)
 _RUBY_VERSION = re.compile(r"^\s*ruby\s+['\"]~?>?\s*(\d+\.\d+)", re.MULTILINE)
 _DOCKER_FROM = re.compile(r"^FROM\s+(?:--platform=\S+\s+)?([\w./-]+):([\w.-]+)", re.MULTILINE | re.IGNORECASE)
 _JAVA_RELEASE = re.compile(r"<(?:maven\.compiler\.(?:release|source|target)|java\.version)>\s*(?:1\.)?(\d+)\s*<")
+# <parent> spring-boot-starter-parent <version>3.2.4</version>, or the spring-boot.version property
+_BOOT_PARENT = re.compile(
+    r"<artifactId>\s*spring-boot-(?:starter-parent|dependencies)\s*</artifactId>\s*<version>\s*(\d+\.\d+)", re.DOTALL
+)
+_BOOT_PROPERTY = re.compile(r"<spring-boot\.version>\s*(\d+\.\d+)")
+# Gradle, Groovy or Kotlin DSL: id 'org.springframework.boot' version '3.2.4' / id("org.springframework.boot") version "3.2.4"
+_BOOT_GRADLE = re.compile(r"""org\.springframework\.boot['"]\)?\s+version\s+['"](\d+\.\d+)""")
+# JavaLanguageVersion.of(17), sourceCompatibility = '17' / JavaVersion.VERSION_17 / VERSION_1_8, jvmToolchain(17)
+_GRADLE_JAVA = re.compile(
+    r"JavaLanguageVersion\.of\(\s*(\d+)\s*\)"
+    r"|sourceCompatibility\s*=\s*(?:JavaVersion\.VERSION_(?:1_)?(\d+)|['\"]?(?:1\.)?(\d+))"
+    r"|jvmToolchain\(\s*(\d+)\s*\)"
+)
 
 #: endoflife.date product slug -> (how we name it, cycle extractor)
 _DOCKER_IMAGES = {"python": "python", "node": "nodejs", "php": "php", "golang": "go", "ruby": "ruby", "openjdk": "java", "eclipse-temurin": "java"}
@@ -76,6 +90,16 @@ def detect_runtimes(root: Path, manifests: list[str]) -> list[dict[str, str]]:
             m = _JAVA_RELEASE.search(text)
             if m:
                 add("java", m.group(1), rel_path)
+            m = _BOOT_PARENT.search(text) or _BOOT_PROPERTY.search(text)
+            if m:
+                add("spring-boot", m.group(1), rel_path)
+        elif name in ("build.gradle", "build.gradle.kts"):
+            m = _GRADLE_JAVA.search(text)
+            if m:
+                add("java", next(g for g in m.groups() if g), rel_path)
+            m = _BOOT_GRADLE.search(text)
+            if m:
+                add("spring-boot", m.group(1), rel_path)
         elif name == "Dockerfile":
             for image, tag in _DOCKER_FROM.findall(text):
                 product = _DOCKER_IMAGES.get(image.split("/")[-1])
@@ -93,11 +117,20 @@ def detect_runtimes(root: Path, manifests: list[str]) -> list[dict[str, str]]:
     return found
 
 
+#: Our product name -> endoflife.date slug, where they differ. endoflife.date has no
+#: "java" product; Eclipse Temurin (Adoptium OpenJDK) is the closest general proxy.
+_EOL_SLUG = {"java": "eclipse-temurin"}
+
+
+def eol_slug(product: str) -> str:
+    return _EOL_SLUG.get(product, product)
+
+
 def lookup_eol(product: str, cycle: str) -> dict[str, Any] | None:
     """``{eol: date|None, latest: str}`` from endoflife.date, or None when unknown/offline."""
     if offline():
         return None
-    url = f"https://endoflife.date/api/{product}/{cycle}.json"
+    url = f"https://endoflife.date/api/{eol_slug(product)}/{cycle}.json"
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "shyena/0.0"}), timeout=HTTP_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -151,7 +184,7 @@ class ManifestsProbe(PythonCodeProbe):
                         probe=self.name,
                         description=f"Declared in {rt['source']}. No security fixes are published for this runtime any more.",
                         remediation=f"Upgrade to a supported release (latest: {info['latest'] or 'see endoflife.date'}).",
-                        references=[f"https://endoflife.date/{rt['product']}"],
+                        references=[f"https://endoflife.date/{eol_slug(rt['product'])}"],
                         rule_id="shyena:eol.runtime",
                         category=Category.COMPATIBILITY,
                         locations=loc,
@@ -166,7 +199,7 @@ class ManifestsProbe(PythonCodeProbe):
                         probe=self.name,
                         description=f"Declared in {rt['source']}. {(eol - today).days} days of support remain.",
                         remediation="Plan the upgrade before the date.",
-                        references=[f"https://endoflife.date/{rt['product']}"],
+                        references=[f"https://endoflife.date/{eol_slug(rt['product'])}"],
                         rule_id="shyena:eol.soon",
                         category=Category.COMPATIBILITY,
                         locations=loc,

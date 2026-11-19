@@ -106,3 +106,42 @@ def test_runtime_detection(tmp_path: Path):
     found = detect_runtimes(tmp_path, ["pyproject.toml", "package.json", "composer.json", "Dockerfile"])
     pairs = {(r["product"], r["cycle"]) for r in found}
     assert pairs == {("python", "3.11"), ("nodejs", "18"), ("php", "8.1"), ("python", "3.9"), ("nodejs", "20")}
+
+
+def test_spring_boot_and_gradle_detection(tmp_path: Path):
+    (tmp_path / "pom.xml").write_text(
+        "<project><parent><groupId>org.springframework.boot</groupId>\n"
+        "<artifactId>spring-boot-starter-parent</artifactId>\n<version>2.7.18</version></parent>\n"
+        "<properties><java.version>11</java.version></properties></project>",
+        encoding="utf-8",
+    )
+    svc = tmp_path / "svc"
+    svc.mkdir()
+    (svc / "build.gradle.kts").write_text(
+        'plugins {\n  id("org.springframework.boot") version "3.3.5"\n}\n'
+        "java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }\n",
+        encoding="utf-8",
+    )
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    (legacy / "build.gradle").write_text(
+        "plugins { id 'org.springframework.boot' version '2.5.4' }\nsourceCompatibility = JavaVersion.VERSION_1_8\n",
+        encoding="utf-8",
+    )
+    found = detect_runtimes(tmp_path, ["pom.xml", "svc/build.gradle.kts", "legacy/build.gradle"])
+    pairs = {(r["product"], r["cycle"], r["source"]) for r in found}
+    assert pairs == {
+        ("java", "11", "pom.xml"),
+        ("spring-boot", "2.7", "pom.xml"),
+        ("java", "21", "svc/build.gradle.kts"),
+        ("spring-boot", "3.3", "svc/build.gradle.kts"),
+        ("java", "8", "legacy/build.gradle"),
+        ("spring-boot", "2.5", "legacy/build.gradle"),
+    }
+
+
+def test_java_eol_uses_temurin_slug():
+    from shyena.probes.manifests import eol_slug
+
+    assert eol_slug("java") == "eclipse-temurin"  # endoflife.date has no "java" product
+    assert eol_slug("spring-boot") == "spring-boot"

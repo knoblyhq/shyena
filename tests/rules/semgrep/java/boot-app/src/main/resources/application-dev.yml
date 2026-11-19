@@ -1,0 +1,12 @@
+# A dev profile may turn the H2 console on; the rule only looks at base / prod / staging files.
+spring:
+  h2:
+    # ok: shyena.java.spring-h2-console-enabled
+    console:
+      enabled: true
+management:
+  endpoints:
+    web:
+      # ok: shyena.java.spring-actuator-exposed
+      exposure:
+        include: health,info,prometheus

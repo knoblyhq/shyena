@@ -11,3 +11,6 @@ shyena/states/
 build/
 dist/
 .cache/
+
+# Scan handoffs describe other codebases' weaknesses; never commit them here.
+docs/handoffs/

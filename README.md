@@ -28,12 +28,12 @@ in the state directory, then `PATH`.
 
 | Engine | Dimension | Install | Status |
 | --- | --- | --- | --- |
-| Syft | SBOM (runs first) | `winget install Anchore.Syft` / brew / apt | proven on the pilot app |
-| Semgrep | code vulnerabilities, our rules in `shyena/rules/semgrep` | `pip install semgrep` | proven on the pilot app |
-| Grype | dependency vulnerabilities over the SBOM | `winget install Anchore.Grype` / brew / apt | proven on the pilot app |
+| Syft | SBOM (runs first) | `winget install Anchore.Syft` / brew / apt | proven on a production app |
+| Semgrep | code vulnerabilities, our rules in `shyena/rules/semgrep` | `pip install semgrep` | proven on a production app |
+| Grype | dependency vulnerabilities over the SBOM | `winget install Anchore.Grype` / brew / apt | proven on a production app |
 | Trivy | Dockerfile / Terraform / Kubernetes misconfiguration | `winget install AquaSecurity.Trivy` / brew / apt | proven on a Dockerfile + Terraform fixture |
-| Gitleaks | secrets (value never stored, only its hash) | `winget install Gitleaks.Gitleaks` / brew | proven on the pilot app history |
-| Lizard | cyclomatic complexity | `pip install lizard` | proven on the pilot app |
+| Gitleaks | secrets (value never stored, only its hash) | `winget install Gitleaks.Gitleaks` / brew | proven on a production app's full history |
+| Lizard | cyclomatic complexity | `pip install lizard` | proven on a production app |
 | jscpd | duplication | `npm i -g jscpd` | adapter unit-tested only |
 | manifests | runtime versions + end-of-life (endoflife.date) | built in | proven |
 | licence-policy | licence compatibility over the SBOM | built in | proven |
@@ -94,23 +94,50 @@ tests/           pytest, no engines or network needed
 A scan is most useful in the hands of whoever works on that codebase. Write a short
 handoff next to the run (what was scanned, the gate result, where the files are, which
 findings were checked by eye and which were not, how to re-scan and mark findings),
-keep a copy under `docs/handoffs/`, and start a Claude session in the target repository
-with "read the handoff first; verify the high findings before changing code".
+and start a Claude session in the target repository with "read the handoff first;
+verify the high findings before changing code".
 
-`docs/handoffs/pilot-app-2026-10-14.md` is the first one: the pilot app, 341 findings, gate
-FAIL on 10 high vulnerabilities and 51 blocker-complexity functions.
+Keep handoffs with the run or in the target repository, **never in this one**: they
+describe another codebase's open weaknesses and, for secrets, where the live keys are.
+`docs/handoffs/` is gitignored for that reason.
+
+## Java and Spring Boot
+
+`shyena/rules/semgrep/java/` holds 20 rules for Spring MVC / Spring Boot services:
+
+| Area | Rules |
+| --- | --- |
+| Request data to a sink (intra-file taint from any `@GetMapping`/`@PostMapping`/... parameter or `HttpServletRequest`) | `sqli-taint` (JdbcTemplate, JdbcClient, JPA/Hibernate, JDBC), `spel-injection`, `command-injection`, `ssrf` (RestTemplate, WebClient, RestClient, URL), `path-traversal` (incl. `MultipartFile.getOriginalFilename()`), `open-redirect` |
+| Unsafe parsing | `unsafe-deserialization` (ObjectInputStream, XMLDecoder, XStream), `jackson-polymorphic-typing`, `xxe` |
+| Spring Security | `spring-csrf-disabled`, `spring-permit-all-catch-all`, `spring-cors-any-origin` |
+| Crypto and keys | `insecure-tls` (trust-all managers, no-op hostname verifiers), `weak-password-encoder`, `weak-crypto`, `hardcoded-jwt-secret` |
+| `application*.properties` / `.yml` | `spring-actuator-exposed`, `spring-h2-console-enabled`, `spring-secret-in-config` |
+| Thymeleaf templates | `thymeleaf-unescaped-text` (`th:utext`, `[(...)]`) |
+
+The manifest probe reads the Java release and the Spring Boot version from `pom.xml`,
+`build.gradle` and `build.gradle.kts` and checks both against endoflife.date (Java via
+Eclipse Temurin's support dates, since endoflife.date has no generic Java entry).
+Dependency CVEs (Grype over the Syft SBOM), secrets (Gitleaks), complexity (Lizard) and
+duplication (jscpd) need nothing Java-specific.
+
+Limits: taint does not cross files, so request data handed to a `@Service` and used
+there is missed; numeric, UUID and date handler parameters are treated as safe. Kotlin
+is detected but has no rules yet. Every rule is proven by `tests/test_rules.py` against
+annotated fixtures in `tests/rules/semgrep/java/` (`// ruleid:` must fire, `// ok:` must not).
 
 ## Phase 0 status
 
 Built and tested: the contract (`CodeProbe`, `ScanContext`, `ProbeOutput`), the
 finding model, fingerprints, SARIF in/out, eight probe adapters, the licence policy
 engine, depth presets, gate evaluation, lifecycle and reviewer decisions, reports,
-the CLI, and nine Semgrep rules of our own (PHP, JavaScript, Python).
+the CLI, nine Semgrep rules of our own (PHP, JavaScript, Python) and a Java / Spring
+Boot pack of twenty more (see below).
 
 Verified against live engine output: Semgrep, Lizard, Syft, Grype and Gitleaks on
-the pilot app (600 files; about 30 seconds at standard depth, 3.5 minutes at deep depth where
-Gitleaks walks the whole history), Trivy on a Dockerfile + Terraform fixture (the pilot app
-has no container or IaC files for it to judge), and Semgrep + Lizard on the vulnerable
+a production PHP application (600 files; about 30 seconds at standard depth, 3.5
+minutes at deep depth where Gitleaks walks the whole history), Trivy on a Dockerfile +
+Terraform fixture (that application has no container or IaC files for it to judge),
+and Semgrep + Lizard on the vulnerable
 fixture in `tests/test_real_engines.py`, which runs when the binaries are present. The
 test suite otherwise pretends no engines are installed, so it passes on a bare machine.
 

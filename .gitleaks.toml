@@ -1,0 +1,9 @@
+# Gitleaks configuration for this repository: the default rules, minus the rule-test
+# fixtures, which contain deliberately fake credentials (they prove our secret-in-config
+# and hard-coded-key rules fire). Nothing outside tests/rules/ is exempt.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake credentials in Semgrep rule fixtures"
+paths = ['''^tests/rules/''']

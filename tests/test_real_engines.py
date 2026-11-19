@@ -76,3 +76,60 @@ def test_lizard_adapter_on_live_output(vuln_repo: Path):
     smells = [f for f in run.findings if f.rule_id == "lizard:complexity"]
     assert smells and smells[0].primary.path == "index.php" and "knotty" in smells[0].title
     assert any("complexity" in r for r in run.gate.reasons)
+
+
+SPRING_CONTROLLER = """package com.example.demo;
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+public class UserController {
+    private final JdbcTemplate jdbcTemplate;
+
+    UserController(JdbcTemplate jdbcTemplate) { this.jdbcTemplate = jdbcTemplate; }
+
+    @GetMapping("/users")
+    public Object byName(@RequestParam String name) {
+        return jdbcTemplate.queryForList("SELECT * FROM users WHERE name = '" + name + "'");
+    }
+
+    @GetMapping("/users/safe")
+    public Object safe(@RequestParam String name) {
+        return jdbcTemplate.queryForList("SELECT * FROM users WHERE name = ?", name);
+    }
+}
+"""
+
+
+@pytest.mark.real_tools
+@pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep not installed")
+def test_semgrep_on_a_spring_boot_change(tmp_path: Path):
+    """A pull-request scan of a Spring Boot repo: the Java rules and the generic
+    application.properties rules both run on just the changed files."""
+    root = tmp_path / "boot"
+    (root / "src/main/java/com/example/demo").mkdir(parents=True)
+    (root / "src/main/resources").mkdir(parents=True)
+    git(root, "init", "-q", "-b", "main")
+    (root / "README.md").write_text("demo\n", encoding="utf-8")
+    commit_all(root, "init")
+    git(root, "checkout", "-q", "-b", "feature")
+    (root / "src/main/java/com/example/demo/UserController.java").write_text(SPRING_CONTROLLER, encoding="utf-8")
+    (root / "src/main/resources/application.properties").write_text(
+        "spring.datasource.password=Sup3rS3cret!\nmanagement.endpoints.web.exposure.include=*\n", encoding="utf-8"
+    )
+    commit_all(root, "users endpoint")
+
+    run = engine.scan(root, depth="standard", base="main")
+    semgrep_run = next(p for p in run.probe_runs if p["probe"] == "semgrep")
+    assert semgrep_run["status"] == "completed", semgrep_run
+    hits = {(f.rule_id, f.primary.path, f.primary.start_line) for f in run.findings if f.probe == "semgrep"}
+    controller = "src/main/java/com/example/demo/UserController.java"
+    props = "src/main/resources/application.properties"
+    assert ("semgrep:shyena.java.sqli-taint", controller, 14) in hits
+    assert not any(r == "semgrep:shyena.java.sqli-taint" and line == 19 for r, _, line in hits)
+    assert ("semgrep:shyena.java.spring-secret-in-config", props, 1) in hits
+    assert ("semgrep:shyena.java.spring-actuator-exposed", props, 2) in hits
+    sqli = next(f for f in run.findings if f.rule_id == "semgrep:shyena.java.sqli-taint")
+    assert sqli.severity is Severity.HIGH and sqli.cwe == "CWE-89" and sqli.status is FindingStatus.NEW
+    assert not run.gate.passed

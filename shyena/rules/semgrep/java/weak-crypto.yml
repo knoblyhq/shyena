@@ -1,0 +1,66 @@
+rules:
+  - id: shyena.java.weak-password-encoder
+    message: >-
+      Passwords are stored in plain text or with a fast, unsalted or broken hash
+      (NoOpPasswordEncoder, MD5, SHA-1, the deprecated StandardPasswordEncoder). A leaked
+      user table is then cracked in hours. Use BCryptPasswordEncoder, Argon2 or
+      PasswordEncoderFactories.createDelegatingPasswordEncoder(), which also upgrades old
+      hashes on next login.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-916: Use of Password Hash With Insufficient Computational Effort"
+      confidence: HIGH
+      references:
+        - https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html
+    pattern-either:
+      - pattern: NoOpPasswordEncoder.getInstance()
+      - pattern: new Md5PasswordEncoder(...)
+      - pattern: new ShaPasswordEncoder(...)
+      - pattern: new StandardPasswordEncoder(...)
+      - pattern: new LdapShaPasswordEncoder(...)
+      - pattern: new MessageDigestPasswordEncoder(...)
+      - pattern: '"{noop}" + $X'
+      - patterns:
+          - pattern: '"$PW"'
+          - metavariable-regex:
+              metavariable: $PW
+              regex: ^\{noop\}.
+          # only where a password is being built or configured, not in a log message
+          - pattern-inside: $X.password(...)
+
+  - id: shyena.java.weak-crypto
+    message: >-
+      A broken hash (MD5, SHA-1) or cipher (DES, 3DES, RC2, RC4, Blowfish, or any cipher
+      in ECB mode; "AES" alone means AES/ECB) is used. Fine for a non-security checksum
+      such as an ETag; not for signatures, tokens, integrity checks or encryption. Use
+      SHA-256 or better, and AES/GCM/NoPadding with a random 12-byte IV.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      confidence: MEDIUM
+      references:
+        - https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html
+    pattern-either:
+      - patterns:
+          - pattern: MessageDigest.getInstance("$ALG", ...)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: (?i)^(MD2|MD4|MD5|SHA-?1|SHA)$
+      - patterns:
+          - pattern: Cipher.getInstance("$ALG", ...)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: (?i)^(DES|DESede|3DES|TripleDES|RC2|RC4|ARCFOUR|Blowfish|AES)(/.*)?$|/ECB/
+          - metavariable-regex:
+              metavariable: $ALG
+              # AES with a real mode is fine; RSA's "ECB" is a misnomer (OAEP is the concern, not ECB)
+              regex: (?i)^(?!AES/(GCM|CBC|CTR)/|RSA/)
+      - pattern: DigestUtils.md5(...)
+      - pattern: DigestUtils.md5Hex(...)
+      - pattern: DigestUtils.sha1(...)
+      - pattern: DigestUtils.sha1Hex(...)
+      - pattern: DigestUtils.md5DigestAsHex(...)

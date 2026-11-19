@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- ruleid: shyena.java.thymeleaf-unescaped-text -->
+<div th:utext="${user.bio}">bio</div>
+<!-- ok: shyena.java.thymeleaf-unescaped-text -->
+<div th:text="${user.name}">name</div>
+<!-- ruleid: shyena.java.thymeleaf-unescaped-text -->
+<p>[(${user.signature})]</p>
+<!-- ok: shyena.java.thymeleaf-unescaped-text -->
+<p>[[${user.signature}]]</p>
+<!-- ok: shyena.java.thymeleaf-unescaped-text -->
+<div th:utext="#{welcome.message}">static message from messages.properties</div>
+</body>
+</html>

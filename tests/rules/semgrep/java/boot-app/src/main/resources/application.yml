@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://db:5432/app
+    username: app
+    # ok: shyena.java.spring-secret-in-config
+    password: ${DB_PASSWORD}
+  security:
+    oauth2:
+      client:
+        registration:
+          idp:
+            client-id: demo
+            # ruleid: shyena.java.spring-secret-in-config
+            client-secret: "a8f3c2e9b7d14f6a"
+management:
+  endpoints:
+    web:
+      # ruleid: shyena.java.spring-actuator-exposed
+      exposure:
+        include: "*"

@@ -1,0 +1,20 @@
+rules:
+  - id: shyena.java.thymeleaf-unescaped-text
+    message: >-
+      th:utext (or [(${...})] inline) writes a model value into the page without HTML
+      escaping. If any part of it comes from a user, that is stored or reflected XSS.
+      Use th:text / [[${...}]], or sanitise the HTML server-side with an allow-list
+      (OWASP Java HTML Sanitizer) before putting it in the model.
+    languages: [generic]
+    severity: WARNING
+    paths:
+      include: ["**/templates/**/*.html", "**/*.th.html"]
+    metadata:
+      category: security
+      cwe: "CWE-79: Improper Neutralization of Input During Web Page Generation (Cross-site Scripting)"
+      confidence: MEDIUM
+      references:
+        - https://www.thymeleaf.org/doc/tutorials/3.1/usingthymeleaf.html#unescaped-text
+    pattern-either:
+      - pattern-regex: th:utext\s*=\s*["'][^"']*\$\{
+      - pattern-regex: \[\(\$\{[^}]+\}\)\]

@@ -1,0 +1,89 @@
+rules:
+  - id: shyena.java.spring-csrf-disabled
+    message: >-
+      Spring Security's CSRF protection is switched off. That is right for a stateless
+      API authenticated only by an Authorization header (bearer token), and wrong for
+      anything that relies on a session cookie or remember-me cookie, including a form
+      login or an SPA using the session. Confirm which one this is; if cookies
+      authenticate requests, turn CSRF back on (CookieCsrfTokenRepository for SPAs).
+    languages: [java]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-352: Cross-Site Request Forgery (CSRF)"
+      confidence: MEDIUM
+      references:
+        - https://docs.spring.io/spring-security/reference/features/exploits/csrf.html#csrf-when
+    pattern-either:
+      - pattern: $HTTP.csrf().disable()
+      # Report on the argument, not the start of a long builder chain.
+      - patterns:
+          - pattern-either:
+              - pattern: $HTTP.csrf($ARG)
+          - metavariable-pattern:
+              metavariable: $ARG
+              pattern-either:
+                - pattern: $C -> $C.disable()
+                - pattern: AbstractHttpConfigurer::disable
+                - pattern: CsrfConfigurer::disable
+          - focus-metavariable: $ARG
+
+  - id: shyena.java.spring-permit-all-catch-all
+    message: >-
+      A catch-all matcher (anyRequest() or "/**") is permitAll(), or the whole site is
+      excluded from the security filter chain. Every endpoint not matched earlier, now
+      and in future, is public. End the chain with anyRequest().authenticated() (or
+      denyAll()) and open specific paths explicitly.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-862: Missing Authorization"
+      confidence: HIGH
+      references:
+        - https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html
+    pattern-either:
+      - pattern: $A.anyRequest().permitAll()
+      - pattern: $A.requestMatchers("/**").permitAll()
+      - pattern: $A.antMatchers("/**").permitAll()
+      - pattern: $A.mvcMatchers("/**").permitAll()
+      - pattern: $A.requestMatchers("/**", ...).permitAll()
+      - pattern: $WEB.ignoring().anyRequest()
+      - pattern: $WEB.ignoring().requestMatchers("/**")
+      - pattern: $WEB.ignoring().antMatchers("/**")
+
+  - id: shyena.java.spring-cors-any-origin
+    message: >-
+      CORS allows every origin ("*", an origin pattern of "*", or a bare @CrossOrigin,
+      whose default is all origins). Any website can then call this API from a
+      visitor's browser and read the response; with allowCredentials(true) and an
+      origin pattern that includes the visitor's cookies. List the front-end origins
+      that need access instead.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-942: Permissive Cross-domain Policy with Untrusted Domains"
+      confidence: MEDIUM
+      references:
+        - https://docs.spring.io/spring-framework/reference/web/webmvc-cors.html
+    pattern-either:
+      - pattern: |
+          @CrossOrigin
+          $RET $M(...) { ... }
+      - pattern: |
+          @CrossOrigin
+          class $C { ... }
+      - pattern: '@CrossOrigin("*")'
+      - pattern: '@CrossOrigin(origins = "*", ...)'
+      - pattern: '@CrossOrigin(originPatterns = "*", ...)'
+      - pattern: '@CrossOrigin(value = "*", ...)'
+      - pattern: $REG.allowedOrigins("*")
+      - pattern: $REG.allowedOriginPatterns("*")
+      - pattern: $CFG.addAllowedOrigin("*")
+      - pattern: $CFG.addAllowedOriginPattern("*")
+      - pattern: $CFG.setAllowedOrigins(List.of("*"))
+      - pattern: $CFG.setAllowedOrigins(Arrays.asList("*"))
+      - pattern: $CFG.setAllowedOrigins(Collections.singletonList("*"))
+      - pattern: $CFG.setAllowedOriginPatterns(List.of("*"))
+      - pattern: $CFG.setAllowedOriginPatterns(Arrays.asList("*"))

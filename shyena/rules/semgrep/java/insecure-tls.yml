@@ -1,0 +1,41 @@
+rules:
+  - id: shyena.java.insecure-tls
+    message: >-
+      TLS certificate or hostname checking is switched off (a trust-all TrustManager,
+      a trust-all strategy, or a hostname verifier that accepts everything). Anyone on
+      the network path can then impersonate the server and read or change the traffic.
+      Fix the trust store instead: import the internal CA into a truststore and point
+      the client (or spring.ssl.bundle) at it.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-295: Improper Certificate Validation"
+      confidence: HIGH
+      references:
+        - https://docs.spring.io/spring-boot/reference/features/ssl.html
+    pattern-either:
+      # An X509TrustManager whose checkServerTrusted accepts every chain.
+      - pattern: |
+          public void checkServerTrusted(...) {
+          }
+      - pattern: |
+          public void checkServerTrusted(...) throws $E {
+          }
+      - pattern: NoopHostnameVerifier.INSTANCE
+      - pattern: new NoopHostnameVerifier()
+      - pattern: SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER
+      - pattern: new AllowAllHostnameVerifier()
+      - pattern: TrustAllStrategy.INSTANCE
+      - pattern: new TrustAllStrategy()
+      - pattern: new TrustSelfSignedStrategy()
+      - pattern: InsecureTrustManagerFactory.INSTANCE
+      - pattern: ($CHAIN, $AUTH) -> true
+      - patterns:
+          - pattern-either:
+              - pattern: $X.setHostnameVerifier(($H, $S) -> true)
+              - pattern: $X.setDefaultHostnameVerifier(($H, $S) -> true)
+              - pattern: $X.hostnameVerifier(($H, $S) -> true)
+              - pattern: $X.setSSLHostnameVerifier(($H, $S) -> true)
+              - pattern: $X.setHostnameVerifier(($H, $S) -> { return true; })
+              - pattern: $X.setDefaultHostnameVerifier(($H, $S) -> { return true; })

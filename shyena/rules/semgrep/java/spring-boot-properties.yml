@@ -1,0 +1,68 @@
+# Spring Boot configuration files (application*.properties / application*.yml and
+# bootstrap*). Semgrep has no parser for .properties and nested YAML keys are hard to
+# match structurally, so these rules use the generic engine with regular expressions.
+rules:
+  - id: shyena.java.spring-actuator-exposed
+    message: >-
+      All Spring Boot Actuator endpoints are exposed over HTTP. That includes /env and
+      /configprops (configuration, sometimes secrets), /heapdump (memory, including
+      passwords and tokens in use), /loggers (writeable) and /shutdown if enabled. Expose
+      only what you monitor, e.g. "health,info,prometheus", and put the rest behind
+      authentication or a separate management port.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include: ["**/application*.properties", "**/application*.yml", "**/application*.yaml", "**/bootstrap*.properties", "**/bootstrap*.yml", "**/bootstrap*.yaml"]
+    metadata:
+      category: security
+      cwe: "CWE-200: Exposure of Sensitive Information to an Unauthorized Actor"
+      confidence: HIGH
+      references:
+        - https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.exposing
+    pattern-either:
+      - pattern-regex: (?m)^[ \t]*management\.endpoints\.web\.exposure\.include\s*[=:]\s*["']?\*
+      - pattern-regex: (?m)^[ \t]*exposure:\s*\n\s+include:\s*(["']\*["']|\[\s*["']\*["']\s*\])
+      - pattern-regex: (?m)^[ \t]*management\.endpoint\.(env|configprops)\.show-values\s*[=:]\s*["']?(?i:always)
+      - pattern-regex: (?m)^[ \t]*show-values:\s*["']?(?i:always)
+
+  - id: shyena.java.spring-h2-console-enabled
+    message: >-
+      The H2 web console is enabled. If this profile reaches a server, the console gives
+      anyone who can reach it a SQL shell, and with H2's CREATE ALIAS, code execution
+      (CVE-2021-42392, CVE-2022-23221). Enable it only in a dev profile file such as
+      application-dev.yml, never in the base application file.
+    languages: [generic]
+    severity: WARNING
+    paths:
+      include: ["**/application.properties", "**/application.yml", "**/application.yaml", "**/application-prod*.*", "**/application-production*.*", "**/application-staging*.*"]
+    metadata:
+      category: security
+      cwe: "CWE-489: Active Debug Code"
+      confidence: HIGH
+      references:
+        - https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.h2-web-console
+    pattern-either:
+      - pattern-regex: (?m)^[ \t]*spring\.h2\.console\.enabled\s*[=:]\s*true
+      - pattern-regex: (?m)^[ \t]*h2:\s*\n\s+console:\s*\n\s+enabled:\s*true
+
+  - id: shyena.java.spring-secret-in-config
+    message: >-
+      A password, secret, key or token has a literal value in a Spring configuration
+      file, so it is in git and in every built jar. Reference an environment variable or
+      secret store instead (password: ${DB_PASSWORD}) with no default, and rotate the
+      value that was committed. Placeholders like ${...} and empty values are not reported.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include: ["**/application*.properties", "**/application*.yml", "**/application*.yaml", "**/bootstrap*.properties", "**/bootstrap*.yml", "**/bootstrap*.yaml"]
+    metadata:
+      category: security
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      confidence: MEDIUM
+      references:
+        - https://docs.spring.io/spring-boot/reference/features/external-config.html
+    pattern-either:
+      # spring.datasource.password=s3cret (properties) or `  client-secret: abc` (YAML).
+      # Not reported: ${...} placeholders, empty or "" values, YAML parents with no value,
+      # true/false/null, and the JDK's well-known default keystore password "changeit".
+      - pattern-regex: (?im)^[ \t]*[\w.\-\[\]]*(password|passwd|secret|api[-_.]?key|access[-_.]?key|private[-_.]?key|client[-_.]?secret|token)[ \t]*[=:][ \t]*(?!["']?\$\{)(?!["'][ \t]*["'][ \t]*$)(?!(true|false|null|none|changeit)[ \t]*$)[^\s#].*$

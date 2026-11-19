@@ -61,6 +61,7 @@ LANGUAGES = {
     ".ps1": "powershell",
     ".sql": "sql",
     ".tf": "terraform",
+    ".properties": "properties",  # Spring Boot configuration
     ".yml": "yaml",
     ".yaml": "yaml",
     ".json": "json",

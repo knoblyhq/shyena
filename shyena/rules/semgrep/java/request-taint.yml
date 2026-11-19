@@ -1,0 +1,248 @@
+# Spring MVC / Spring Boot: request data reaching a dangerous sink (intra-file taint).
+#
+# Every rule in this file shares one definition of "request data" (the &request anchor):
+#   - any parameter of a handler method (@GetMapping, @PostMapping, @RequestMapping, ...),
+#     annotated or not, except numeric, boolean, UUID and date types, which cannot
+#     carry an injection payload once Spring has converted them;
+#   - values read from HttpServletRequest (getParameter, getHeader, getCookies, ...).
+# Taint follows assignments, string concatenation, String.format, StringBuilder and
+# method calls on a tainted object (so multipartFile.getOriginalFilename() is tainted).
+# It does not cross files: a value handed to a service class and used there is missed.
+rules:
+  - id: shyena.java.sqli-taint
+    mode: taint
+    message: >-
+      Request data reaches a SQL or JPQL query string. Pass it as a bound parameter
+      (`?` or `:name` with JdbcTemplate, `setParameter` with JPA, a derived or @Query
+      repository method) instead of concatenating or formatting it into the query.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      confidence: HIGH
+      references:
+        - https://docs.spring.io/spring-framework/reference/data-access/jdbc/core.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/Query_Parameterization_Cheat_Sheet.html
+    pattern-sources: &request
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  @$MAPPING(...)
+                  $RET $METHOD(..., $TYPE $PARAM, ...) { ... }
+              - pattern-inside: |
+                  @$MAPPING
+                  $RET $METHOD(..., $TYPE $PARAM, ...) { ... }
+          - metavariable-regex:
+              metavariable: $MAPPING
+              regex: ^(RequestMapping|GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping)$
+          - metavariable-regex:
+              metavariable: $TYPE
+              regex: ^(?!(int|long|short|byte|double|float|boolean|Integer|Long|Short|Byte|Double|Float|Boolean|UUID|BigDecimal|BigInteger|LocalDate|LocalDateTime|LocalTime|OffsetDateTime|ZonedDateTime|Instant|Pageable|Sort|Locale|HttpServletResponse|Model|ModelMap|BindingResult|RedirectAttributes)$)
+          - pattern: $PARAM
+      - patterns:
+          - pattern: (HttpServletRequest $REQ).$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: ^(getParameter|getParameterValues|getParameterMap|getParameterNames|getHeader|getHeaders|getQueryString|getRequestURI|getRequestURL|getPathInfo|getCookies|getInputStream|getReader|getPart|getParts)$
+    pattern-sanitizers: &numeric
+      - pattern-either:
+          - pattern: Integer.parseInt(...)
+          - pattern: Integer.valueOf(...)
+          - pattern: Long.parseLong(...)
+          - pattern: Long.valueOf(...)
+          - pattern: Double.parseDouble(...)
+          - pattern: UUID.fromString(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: (JdbcTemplate $DB).$CALL($Q, ...)
+                      - pattern: (JdbcOperations $DB).$CALL($Q, ...)
+                      - pattern: (NamedParameterJdbcTemplate $DB).$CALL($Q, ...)
+                      - pattern: (NamedParameterJdbcOperations $DB).$CALL($Q, ...)
+                      - patterns:
+                          - pattern: $DB.$CALL($Q, ...)
+                          - metavariable-regex:
+                              metavariable: $DB
+                              regex: (?i)jdbc
+                  - metavariable-regex:
+                      metavariable: $CALL
+                      regex: ^(query|queryForObject|queryForList|queryForMap|queryForRowSet|queryForStream|update|batchUpdate|execute)$
+              - pattern: (JdbcClient $DB).sql($Q)
+              - pattern: (EntityManager $EM).createQuery($Q, ...)
+              - pattern: (EntityManager $EM).createNativeQuery($Q, ...)
+              - pattern: (Session $S).createQuery($Q, ...)
+              - pattern: (Session $S).createNativeQuery($Q, ...)
+              - pattern: (Session $S).createSQLQuery($Q)
+              - pattern: (Statement $ST).executeQuery($Q)
+              - pattern: (Statement $ST).execute($Q, ...)
+              - pattern: (Statement $ST).executeUpdate($Q, ...)
+              - pattern: (Statement $ST).executeLargeUpdate($Q, ...)
+              - pattern: (Statement $ST).addBatch($Q)
+              - pattern: (Connection $C).prepareStatement($Q, ...)
+              - pattern: (Connection $C).prepareCall($Q, ...)
+              - pattern: (Connection $C).createStatement().$EXEC($Q, ...)
+          - focus-metavariable: $Q
+
+  - id: shyena.java.spel-injection
+    mode: taint
+    message: >-
+      Request data is parsed as a Spring Expression Language (SpEL) expression. SpEL can
+      call any method on the classpath, so this is remote code execution. Never parse
+      input as an expression; if you must evaluate one, use SimpleEvaluationContext.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-917: Improper Neutralization of Special Elements used in an Expression Language Statement"
+      confidence: HIGH
+      references:
+        - https://docs.spring.io/spring-framework/reference/core/expressions/evaluation.html
+    pattern-sources: *request
+    pattern-sinks:
+      - patterns:
+          - pattern: $PARSER.parseExpression($EXPR, ...)
+          - focus-metavariable: $EXPR
+
+  - id: shyena.java.command-injection
+    mode: taint
+    message: >-
+      Request data reaches an operating-system command. Do not build commands from input:
+      call a library instead, or pass fixed program names to ProcessBuilder with the input
+      as a separate, allow-listed argument (never through `sh -c` or `cmd /c`).
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      confidence: HIGH
+      references:
+        - https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html
+    pattern-sources: *request
+    pattern-sanitizers: *numeric
+    pattern-sinks:
+      - pattern-either:
+          - pattern: Runtime.getRuntime().exec(...)
+          - pattern: (Runtime $RT).exec(...)
+          - pattern: new ProcessBuilder(...)
+          - pattern: (ProcessBuilder $PB).command(...)
+
+  - id: shyena.java.ssrf
+    mode: taint
+    message: >-
+      Request data chooses the URL of an outbound HTTP call, so a caller can make the
+      server fetch internal addresses (cloud metadata, admin ports, other services).
+      Build the URL from a fixed base and pass input only as path or query variables,
+      or check the host against an allow-list first.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: MEDIUM
+      references:
+        - https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
+    pattern-sources: *request
+    pattern-sanitizers:
+      # "https://fixed-host/path/" + input: the host is ours, only the path varies.
+      - patterns:
+          - pattern: '"$BASE" + $X'
+          - metavariable-regex:
+              metavariable: $BASE
+              regex: ^https?://[^/]+/
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: (RestTemplate $HTTP).$CALL($URL, ...)
+                      - pattern: (RestOperations $HTTP).$CALL($URL, ...)
+                      - patterns:
+                          - pattern: $HTTP.$CALL($URL, ...)
+                          - metavariable-regex:
+                              metavariable: $HTTP
+                              regex: (?i)resttemplate
+                  - metavariable-regex:
+                      metavariable: $CALL
+                      regex: ^(getForObject|getForEntity|postForObject|postForEntity|postForLocation|exchange|execute|put|patchForObject|delete|headForHeaders|optionsForAllow)$
+              - pattern: $SPEC.uri($URL, ...)
+              - pattern: new URL($URL)
+              - pattern: HttpRequest.newBuilder($URL)
+              - pattern: (WebClient.Builder $B).baseUrl($URL)
+              - pattern: WebClient.create($URL)
+              - pattern: RestClient.create($URL)
+          - focus-metavariable: $URL
+
+  - id: shyena.java.path-traversal
+    mode: taint
+    message: >-
+      Request data (a parameter, or an uploaded file's original name) becomes part of a
+      filesystem path, so `../` can read or overwrite files outside the intended folder.
+      Keep only the file name (FilenameUtils.getName or Path.getFileName), or resolve
+      against the base directory, normalize, and reject anything outside it.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      confidence: MEDIUM
+      references:
+        - https://owasp.org/www-community/attacks/Path_Traversal
+    pattern-sources: *request
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: FilenameUtils.getName(...)
+          - pattern: $P.getFileName()
+          - pattern: Integer.parseInt(...)
+          - pattern: Long.parseLong(...)
+          - pattern: UUID.fromString(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-not-inside: |
+              if (<... $X.startsWith(...) ...>) { ... }
+          - pattern-either:
+              - pattern: new File(...)
+              - pattern: Paths.get(...)
+              - pattern: Path.of(...)
+              - pattern: (Path $BASE).resolve(...)
+              - pattern: new FileInputStream(...)
+              - pattern: new FileOutputStream(...)
+              - pattern: new FileReader(...)
+              - pattern: new FileWriter(...)
+              - pattern: new RandomAccessFile(...)
+              - pattern: new FileSystemResource(...)
+
+  - id: shyena.java.open-redirect
+    mode: taint
+    message: >-
+      Request data decides where the browser is redirected, so a link to your site can
+      send users to a phishing page. Redirect only to relative paths you build, or check
+      the target against an allow-list of hosts.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
+      confidence: MEDIUM
+      references:
+        - https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html
+    pattern-sources: *request
+    pattern-sanitizers:
+      # "/fixed/path/" + input stays on this site (but "//host" would not).
+      - patterns:
+          - pattern: '"$BASE" + $X'
+          - metavariable-regex:
+              metavariable: $BASE
+              regex: ^/[^/\\]
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: '"redirect:" + $TARGET'
+              - pattern: (HttpServletResponse $RESP).sendRedirect($TARGET)
+              - pattern: new RedirectView($TARGET, ...)
+              - pattern: new ModelAndView("redirect:" + $TARGET, ...)
+              - pattern: $RESPONSE.location(URI.create($TARGET))
+              - pattern: $RESPONSE.header("Location", $TARGET)
+          - focus-metavariable: $TARGET

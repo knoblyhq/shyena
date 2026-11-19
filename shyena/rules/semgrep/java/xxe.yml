@@ -1,0 +1,56 @@
+rules:
+  - id: shyena.java.xxe
+    message: >-
+      An XML parser factory is created without turning off DTDs / external entities in
+      the same method. Parsing untrusted XML with it allows XML External Entity attacks:
+      reading server files, SSRF, and denial of service. Disable DOCTYPE declarations
+      (setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)) or, for
+      StAX, set SUPPORT_DTD and IS_SUPPORTING_EXTERNAL_ENTITIES to false.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-611: Improper Restriction of XML External Entity Reference"
+      confidence: MEDIUM
+      references:
+        - https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html#java
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $F = DocumentBuilderFactory.newInstance();
+              - pattern: $F = SAXParserFactory.newInstance();
+              - pattern: $F = TransformerFactory.newInstance();
+              - pattern: $F = SchemaFactory.newInstance(...);
+          # The hardening call can be on a later line, or in the method as a whole.
+          - pattern-not-inside: |
+              $F = $FACTORY.newInstance(...);
+              ...
+              $F.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+          - pattern-not-inside: |
+              $F = $FACTORY.newInstance(...);
+              ...
+              $F.setFeature("http://xml.org/sax/features/external-general-entities", false);
+          - pattern-not-inside: |
+              $F = $FACTORY.newInstance(...);
+              ...
+              $F.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+          - pattern-not-inside: |
+              $F = $FACTORY.newInstance(...);
+              ...
+              $F.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+      - patterns:
+          - pattern-either:
+              - pattern: $F = XMLInputFactory.newInstance();
+              - pattern: $F = XMLInputFactory.newFactory();
+          - pattern-not-inside: |
+              $F = $FACTORY.$NEW();
+              ...
+              $F.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+          - pattern-not-inside: |
+              $F = $FACTORY.$NEW();
+              ...
+              $F.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+          - pattern-not-inside: |
+              $F = $FACTORY.$NEW();
+              ...
+              $F.setProperty("javax.xml.stream.isSupportingExternalEntities", false);

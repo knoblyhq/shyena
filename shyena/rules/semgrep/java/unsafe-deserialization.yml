@@ -1,0 +1,80 @@
+rules:
+  - id: shyena.java.unsafe-deserialization
+    message: >-
+      Java native deserialization (ObjectInputStream, XMLDecoder, XStream without a type
+      allow-list) builds whatever classes the byte stream names, and gadget chains in
+      common libraries turn that into remote code execution. Exchange JSON with a fixed
+      target type instead; if native serialization cannot go, install an
+      ObjectInputFilter that allows only your own classes.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      confidence: MEDIUM
+      references:
+        - https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: (ObjectInputStream $IN).readObject()
+              - pattern: (ObjectInputStream $IN).readUnshared()
+          - pattern-not-inside: |
+              $IN.setObjectInputFilter(...);
+              ...
+          - pattern-not-inside: |
+              $RET $M(...) {
+                ...
+                $IN.setObjectInputFilter(...);
+                ...
+              }
+      - pattern: new XMLDecoder(...)
+      - patterns:
+          - pattern: (XStream $X).fromXML(...)
+          - pattern-not-inside: |
+              $RET $M(...) {
+                ...
+                $X.allowTypes(...);
+                ...
+              }
+          - pattern-not-inside: |
+              $RET $M(...) {
+                ...
+                $X.allowTypesByWildcard(...);
+                ...
+              }
+          - pattern-not-inside: |
+              $RET $M(...) {
+                ...
+                $X.addPermission(...);
+                ...
+              }
+
+  - id: shyena.java.jackson-polymorphic-typing
+    message: >-
+      Jackson is told to read the class name from the JSON (default typing, or
+      @JsonTypeInfo with Id.CLASS / Id.MINIMAL_CLASS). Attacker-chosen classes can then
+      be instantiated, which has led to many remote code execution CVEs. Use
+      Id.NAME with an explicit @JsonSubTypes list, or a PolymorphicTypeValidator that
+      allows only your own packages.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      references:
+        - https://cowtowncoder.medium.com/on-jackson-cves-dont-panic-here-is-what-you-need-to-know-54cd0d6e8062
+    pattern-either:
+      - pattern: $MAPPER.enableDefaultTyping(...)
+      - patterns:
+          - pattern: $MAPPER.activateDefaultTyping($VALIDATOR, ...)
+          - metavariable-pattern:
+              metavariable: $VALIDATOR
+              pattern-either:
+                - pattern: LaissezFaireSubTypeValidator.instance
+                - pattern: new LaissezFaireSubTypeValidator()
+      - pattern: '@JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, ...)'
+      - pattern: '@JsonTypeInfo(use = JsonTypeInfo.Id.MINIMAL_CLASS, ...)'
+      - pattern: '@JsonTypeInfo(use = Id.CLASS, ...)'
+      - pattern: '@JsonTypeInfo(use = Id.MINIMAL_CLASS, ...)'
