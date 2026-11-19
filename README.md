@@ -103,11 +103,16 @@ describe another codebase's open weaknesses and, for secrets, where the live key
 
 ## Java and Spring Boot
 
-`shyena/rules/semgrep/java/` holds 20 rules for Spring MVC / Spring Boot services:
+`shyena/rules/semgrep/java/` holds 30 rules for Spring MVC / Spring Boot services on
+PostgreSQL and Redis:
 
 | Area | Rules |
 | --- | --- |
-| Request data to a sink (intra-file taint from any `@GetMapping`/`@PostMapping`/... parameter or `HttpServletRequest`) | `sqli-taint` (JdbcTemplate, JdbcClient, JPA/Hibernate, JDBC), `spel-injection`, `command-injection`, `ssrf` (RestTemplate, WebClient, RestClient, URL), `path-traversal` (incl. `MultipartFile.getOriginalFilename()`), `open-redirect` |
+| Request data to a sink (intra-file taint from any `@GetMapping`/`@PostMapping`/... parameter or `HttpServletRequest`) | `sqli-taint` (JdbcTemplate, JdbcClient, JPA/Hibernate, JDBC, R2DBC, jOOQ), `spel-injection`, `command-injection`, `ssrf` (RestTemplate, WebClient, RestClient, URL), `path-traversal` (incl. `MultipartFile.getOriginalFilename()`), `open-redirect`, `redis-lua-injection` |
+| SQL built at run time anywhere (no taint, so it reaches repositories and DAOs; WARNING, does not fail the gate) | `sql-non-constant` |
+| MyBatis | `mybatis-dollar-substitution` (`${}` in mapper XML), `mybatis-annotation-dollar-substitution` (`@Select` etc.) |
+| PostgreSQL | `postgres-weak-sslmode`, `postgres-superuser-login`, `postgres-dangerous-function` (COPY ... PROGRAM, server files, `lo_import`, `pg_read_file`, dblink; in Java and in migrations) |
+| Redis | `redis-jdk-serialization` (JDK serializer, or RedisTemplate / RedisCacheConfiguration left on the default), `redis-no-tls` |
 | Unsafe parsing | `unsafe-deserialization` (ObjectInputStream, XMLDecoder, XStream), `jackson-polymorphic-typing`, `xxe` |
 | Spring Security | `spring-csrf-disabled`, `spring-permit-all-catch-all`, `spring-cors-any-origin` |
 | Crypto and keys | `insecure-tls` (trust-all managers, no-op hostname verifiers), `weak-password-encoder`, `weak-crypto`, `hardcoded-jwt-secret` |
@@ -120,9 +125,13 @@ Eclipse Temurin's support dates, since endoflife.date has no generic Java entry)
 Dependency CVEs (Grype over the Syft SBOM), secrets (Gitleaks), complexity (Lizard) and
 duplication (jscpd) need nothing Java-specific.
 
-Limits: taint does not cross files, so request data handed to a `@Service` and used
-there is missed; numeric, UUID and date handler parameters are treated as safe. Kotlin
-is detected but has no rules yet. Every rule is proven by `tests/test_rules.py` against
+Limits: taint does not cross files; `sql-non-constant` is the safety net for that, at
+the cost of some noise (IN lists built in a loop, table names from config). Numeric,
+UUID and date handler parameters are treated as safe. Not covered: authorization
+(missing `@PreAuthorize`, IDOR), mass assignment, sensitive data in logs, Spring
+Session's serializer (configured by bean name), and Kotlin. Profile files named
+`application-dev*`, `-local*` and `-test*` are exempt from the Postgres and Redis
+transport rules. Every rule is proven by `tests/test_rules.py` against
 annotated fixtures in `tests/rules/semgrep/java/` (`// ruleid:` must fire, `// ok:` must not).
 
 ## Phase 0 status

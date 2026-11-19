@@ -13,6 +13,11 @@ import javax.persistence.EntityManager;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.io.FilenameUtils;
+import org.jooq.DSLContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.stereotype.Repository;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,6 +35,7 @@ public class DemoController {
     private final EntityManager em;
     private final RestTemplate restTemplate;
     private final WebClient webClient;
+    private StringRedisTemplate redisTemplate;
 
     DemoController(JdbcTemplate jdbcTemplate, EntityManager em, RestTemplate restTemplate, WebClient webClient) {
         this.jdbcTemplate = jdbcTemplate;
@@ -200,9 +206,74 @@ public class DemoController {
         response.sendRedirect("/items/" + id);
     }
 
-    // A service method that is not a handler: its parameters are not request data.
+    // A service method that is not a handler: its parameters are not request data, so
+    // taint is silent, but the non-constant rule still reports the built query.
     public List<Map<String, Object>> internal(String table) {
         // ok: shyena.java.sqli-taint
+        // ruleid: shyena.java.sql-non-constant
         return jdbcTemplate.queryForList("SELECT * FROM " + table);
+    }
+
+    // ---------------------------------------------------------------- Redis Lua
+
+    @PostMapping("/counter")
+    public Object counter(@RequestParam String field) {
+        // ruleid: shyena.java.redis-lua-injection
+        RedisScript<Long> s = RedisScript.of("return redis.call('HINCRBY', KEYS[1], '" + field + "', 1)", Long.class);
+        // ok: shyena.java.redis-lua-injection
+        RedisScript<Long> safe = RedisScript.of("return redis.call('HINCRBY', KEYS[1], ARGV[1], 1)", Long.class);
+        return redisTemplate.execute(safe, List.of("counters"), field);
+    }
+}
+
+// A repository: no @RequestParam in sight, which is where cross-file SQL injection hides.
+@Repository
+class UserRepository {
+    private static final String FIND_ALL = "SELECT id, name FROM users";
+    private final JdbcTemplate jdbcTemplate;
+    private final EntityManager em;
+    private final DatabaseClient db;
+    private final DSLContext dsl;
+
+    UserRepository(JdbcTemplate jdbcTemplate, EntityManager em, DatabaseClient db, DSLContext dsl) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.em = em;
+        this.db = db;
+        this.dsl = dsl;
+    }
+
+    List<Map<String, Object>> byStatus(String status) {
+        // ruleid: shyena.java.sql-non-constant
+        return jdbcTemplate.queryForList("SELECT * FROM users WHERE status = '" + status + "'");
+    }
+
+    List<?> sorted(String column) {
+        String jpql = String.format("from User u order by u.%s", column);
+        // ruleid: shyena.java.sql-non-constant
+        return em.createQuery(jpql).getResultList();
+    }
+
+    Object reactive(String name) {
+        // ruleid: shyena.java.sql-non-constant
+        return db.sql("SELECT * FROM users WHERE name = '" + name + "'").fetch().all();
+    }
+
+    Object jooq(String name) {
+        // ruleid: shyena.java.sql-non-constant
+        return dsl.fetch("SELECT * FROM users WHERE name = '" + name + "'");
+    }
+
+    List<Map<String, Object>> constants(String status) {
+        String sql = "SELECT * FROM users WHERE status = ?";
+        // ok: shyena.java.sql-non-constant
+        jdbcTemplate.queryForList(sql, status);
+        // ok: shyena.java.sql-non-constant
+        jdbcTemplate.queryForList(FIND_ALL);
+        // ok: shyena.java.sql-non-constant
+        jdbcTemplate.queryForList(Queries.ACTIVE_USERS);
+        // ok: shyena.java.sql-non-constant
+        jdbcTemplate.queryForList("SELECT * FROM users " + "WHERE active");
+        // ok: shyena.java.sql-non-constant
+        return db.sql("SELECT * FROM users WHERE name = :name").bind("name", status).fetch().all() == null ? null : List.of();
     }
 }

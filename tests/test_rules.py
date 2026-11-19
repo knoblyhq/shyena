@@ -23,7 +23,7 @@ import pytest
 from shyena.config import rules_dir
 
 FIXTURES = Path(__file__).parent / "rules" / "semgrep"
-_ANNOTATION = re.compile(r"(?:ruleid|ok):\s*(shyena\.[\w.-]+)")
+_ANNOTATION = re.compile(r"(shyena\.[\w.-]*\w)")
 _KIND = re.compile(r"\b(ruleid|ok):")
 
 pytestmark = [
@@ -41,14 +41,19 @@ def expectations(root: Path) -> tuple[dict[tuple[str, str], set[int]], set[str]]
             continue
         rel = path.relative_to(root).as_posix()
         lines = path.read_text(encoding="utf-8").splitlines()
-        for i, line in enumerate(lines, start=1):
-            m = _ANNOTATION.search(line)
-            kind = _KIND.search(line)
-            if not (m and kind):
+        is_annotation = [bool(_ANNOTATION.search(l) and _KIND.search(l)) for l in lines]
+        for i, line in enumerate(lines):
+            if not is_annotation[i]:
                 continue
-            annotated.add((rel, m.group(1)))
-            if kind.group(1) == "ruleid":
-                expected[(rel, m.group(1))].add(i + 1)
+            # Annotations may be stacked; each applies to the next non-annotation line.
+            target = i + 1
+            while target < len(lines) and is_annotation[target]:
+                target += 1
+            kind = _KIND.search(line).group(1)
+            for rule in _ANNOTATION.findall(line):
+                annotated.add((rel, rule))
+                if kind == "ruleid":
+                    expected[(rel, rule)].add(target + 1)
     return expected, annotated
 
 

@@ -62,6 +62,7 @@ LANGUAGES = {
     ".sql": "sql",
     ".tf": "terraform",
     ".properties": "properties",  # Spring Boot configuration
+    ".xml": "xml",  # MyBatis mappers (and pom.xml)
     ".yml": "yaml",
     ".yaml": "yaml",
     ".json": "json",

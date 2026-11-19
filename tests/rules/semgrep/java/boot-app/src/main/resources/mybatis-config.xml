@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <properties resource="db.properties"/>
+  <environments default="main">
+    <environment id="main">
+      <dataSource type="POOLED">
+        <!-- ok: shyena.java.mybatis-dollar-substitution -->
+        <property name="url" value="${url}"/>
+      </dataSource>
+    </environment>
+  </environments>
+</configuration>

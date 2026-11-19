@@ -55,7 +55,8 @@ rules:
           - pattern: UUID.fromString(...)
     pattern-sinks:
       - patterns:
-          - pattern-either:
+          # &sql_calls is reused by shyena.java.sql-non-constant below.
+          - pattern-either: &sql_calls
               - patterns:
                   - pattern-either:
                       - pattern: (JdbcTemplate $DB).$CALL($Q, ...)
@@ -84,7 +85,101 @@ rules:
               - pattern: (Connection $C).prepareStatement($Q, ...)
               - pattern: (Connection $C).prepareCall($Q, ...)
               - pattern: (Connection $C).createStatement().$EXEC($Q, ...)
+              # R2DBC (reactive Postgres)
+              - pattern: (DatabaseClient $DB).sql($Q)
+              - pattern: (R2dbcEntityTemplate $DB).getDatabaseClient().sql($Q)
+              # jOOQ plain-SQL API
+              - patterns:
+                  - pattern-either:
+                      - pattern: (DSLContext $DB).$CALL($Q, ...)
+                      - patterns:
+                          - pattern: $DB.$CALL($Q, ...)
+                          - metavariable-regex:
+                              metavariable: $DB
+                              regex: ^(dsl|ctx|create|jooq|dslContext)$
+                  - metavariable-regex:
+                      metavariable: $CALL
+                      regex: ^(fetch|fetchOne|fetchSingle|fetchOptional|fetchAny|fetchLazy|fetchStream|fetchValue|fetchMany|execute|query|resultQuery)$
+              - pattern: DSL.condition($Q, ...)
+              - pattern: DSL.field($Q, ...)
+              - pattern: DSL.table($Q, ...)
+              - pattern: DSL.sql($Q, ...)
           - focus-metavariable: $Q
+
+  # Taint stops at a file boundary, and in a layered Spring app the SQL is usually
+  # built in a repository or DAO class that never sees a @RequestParam. This rule needs
+  # no taint: it reports any SQL/JPQL string that is not a compile-time constant,
+  # wherever it is built. Expect some noise (an IN (?, ?, ?) list built in a loop, a
+  # table name from config); it is a WARNING so it informs without failing the gate.
+  - id: shyena.java.sql-non-constant
+    message: >-
+      A SQL or JPQL query is built at run time (concatenation, String.format,
+      StringBuilder or a variable) rather than being a constant. If any part can come
+      from a caller, this is SQL injection. Keep the query text constant and pass values
+      as bound parameters; for dynamic ORDER BY or column names, map the input to an
+      allow-listed constant.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      confidence: LOW
+      references:
+        - https://cheatsheetseries.owasp.org/cheatsheets/Query_Parameterization_Cheat_Sheet.html
+    patterns:
+      - pattern-either: *sql_calls
+      # Handler methods are covered, with more precision, by shyena.java.sqli-taint.
+      - pattern-not-inside: |
+          @$MAPPING(...)
+          $RET $METHOD(...) { ... }
+      - pattern-not-inside: |
+          @$MAPPING
+          $RET $METHOD(...) { ... }
+      - focus-metavariable: $Q
+      # Constants: literals, text blocks, local variables holding one (Semgrep's constant
+      # propagation), and UPPER_CASE static constants, also from another class.
+      # These pattern-nots match the whole call: negatives are applied before the focus.
+      - pattern-not: $DB.$CALL("...", ...)
+      - pattern-not: $DB.$GET().$CALL("...", ...)
+      - metavariable-regex:
+          metavariable: $Q
+          regex: ^(?!([A-Z][A-Za-z0-9_]*\.)?[A-Z][A-Z0-9_]*$)
+
+  - id: shyena.java.redis-lua-injection
+    mode: taint
+    message: >-
+      Request data becomes part of a Redis Lua script. The script runs inside Redis with
+      access to every key, so a caller can read, change or delete any data in that
+      Redis. Keep the script constant and pass input through KEYS and ARGV.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-94: Improper Control of Generation of Code ('Code Injection')"
+      confidence: HIGH
+      references:
+        - https://redis.io/docs/latest/develop/interact/programmability/eval-intro/
+    pattern-sources: *request
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: new DefaultRedisScript<$T>($SCRIPT, ...)
+              - pattern: new DefaultRedisScript<>($SCRIPT, ...)
+              - pattern: new DefaultRedisScript($SCRIPT, ...)
+              - pattern: RedisScript.of($SCRIPT, ...)
+              - pattern: (Jedis $R).eval($SCRIPT, ...)
+              - pattern: (JedisPooled $R).eval($SCRIPT, ...)
+              - pattern: (UnifiedJedis $R).eval($SCRIPT, ...)
+              - pattern: (RedisCommands $R).eval($SCRIPT, ...)
+              - pattern: (RedisAsyncCommands $R).eval($SCRIPT, ...)
+              - pattern: (RedisReactiveCommands $R).eval($SCRIPT, ...)
+              - pattern: (RedisScriptingCommands $R).eval($SCRIPT, ...)
+              - patterns:
+                  - pattern: $R.eval($SCRIPT, ...)
+                  - metavariable-regex:
+                      metavariable: $R
+                      regex: (?i)(redis|jedis|lettuce|commands)
+          - focus-metavariable: $SCRIPT
 
   - id: shyena.java.spel-injection
     mode: taint

@@ -102,6 +102,22 @@ public class UserController {
 """
 
 
+SPRING_REPOSITORY = """package com.example.demo;
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
+
+@Repository
+class UserRepository {
+    private final JdbcTemplate jdbcTemplate;
+    UserRepository(JdbcTemplate jdbcTemplate) { this.jdbcTemplate = jdbcTemplate; }
+    Object byStatus(String status) {
+        return jdbcTemplate.queryForList("SELECT * FROM users WHERE status = '" + status + "'");
+    }
+}
+"""
+
+
 @pytest.mark.real_tools
 @pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep not installed")
 def test_semgrep_on_a_spring_boot_change(tmp_path: Path):
@@ -115,6 +131,12 @@ def test_semgrep_on_a_spring_boot_change(tmp_path: Path):
     commit_all(root, "init")
     git(root, "checkout", "-q", "-b", "feature")
     (root / "src/main/java/com/example/demo/UserController.java").write_text(SPRING_CONTROLLER, encoding="utf-8")
+    (root / "src/main/java/com/example/demo/UserRepository.java").write_text(SPRING_REPOSITORY, encoding="utf-8")
+    (root / "src/main/resources/mapper").mkdir()
+    (root / "src/main/resources/mapper/UserMapper.xml").write_text(
+        '<mapper namespace="x">\n  <select id="s">\n    SELECT * FROM users ORDER BY ${sort}\n  </select>\n</mapper>\n',
+        encoding="utf-8",
+    )
     (root / "src/main/resources/application.properties").write_text(
         "spring.datasource.password=Sup3rS3cret!\nmanagement.endpoints.web.exposure.include=*\n", encoding="utf-8"
     )
@@ -130,6 +152,11 @@ def test_semgrep_on_a_spring_boot_change(tmp_path: Path):
     assert not any(r == "semgrep:shyena.java.sqli-taint" and line == 19 for r, _, line in hits)
     assert ("semgrep:shyena.java.spring-secret-in-config", props, 1) in hits
     assert ("semgrep:shyena.java.spring-actuator-exposed", props, 2) in hits
+    repo_file = "src/main/java/com/example/demo/UserRepository.java"
+    assert ("semgrep:shyena.java.sql-non-constant", repo_file, 11) in hits
+    assert ("semgrep:shyena.java.mybatis-dollar-substitution", "src/main/resources/mapper/UserMapper.xml", 3) in hits
+    non_constant = next(f for f in run.findings if f.rule_id == "semgrep:shyena.java.sql-non-constant")
+    assert non_constant.severity is Severity.MEDIUM  # informs; does not fail the gate on its own
     sqli = next(f for f in run.findings if f.rule_id == "semgrep:shyena.java.sqli-taint")
     assert sqli.severity is Severity.HIGH and sqli.cwe == "CWE-89" and sqli.status is FindingStatus.NEW
     assert not run.gate.passed

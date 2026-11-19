@@ -1,0 +1,11 @@
+spring:
+  datasource:
+    # ok: shyena.java.postgres-weak-sslmode
+    url: jdbc:postgresql://orders-db.internal:5432/orders?sslmode=verify-full&sslrootcert=/etc/ssl/rds.pem
+    # ok: shyena.java.postgres-superuser-login
+    username: orders_app
+    password: ${DB_PASSWORD}
+  data:
+    redis:
+      # ok: shyena.java.redis-no-tls
+      url: rediss://cache.internal:6380

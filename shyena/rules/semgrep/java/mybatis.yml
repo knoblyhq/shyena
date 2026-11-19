@@ -1,0 +1,37 @@
+# MyBatis: ${...} is pasted into the SQL text as-is; #{...} becomes a bound parameter.
+rules:
+  - id: shyena.java.mybatis-dollar-substitution
+    message: >-
+      A MyBatis statement uses ${...}, which pastes the value straight into the SQL text
+      (no escaping, no binding). If the value can come from a caller this is SQL
+      injection. Use #{...} for values. For an ORDER BY column or direction, map the
+      input to an allow-listed constant in Java first, and say so in a comment here.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include: ["**/*Mapper.xml", "**/*mapper.xml", "**/*Dao.xml", "**/mapper/**/*.xml", "**/mappers/**/*.xml", "**/mybatis/**/*.xml"]
+      exclude: ["**/mybatis-config.xml", "**/*generatorConfig*.xml"]
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      confidence: MEDIUM
+      references:
+        - https://mybatis.org/mybatis-3/sqlmap-xml.html#string-substitution
+    pattern-regex: \$\{[^}]+\}
+
+  - id: shyena.java.mybatis-annotation-dollar-substitution
+    message: >-
+      A MyBatis @Select/@Update/@Insert/@Delete annotation uses ${...}, which pastes the
+      value straight into the SQL text. If the value can come from a caller this is SQL
+      injection. Use #{...}; for identifiers, map input to an allow-listed constant.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      confidence: MEDIUM
+      references:
+        - https://mybatis.org/mybatis-3/java-api.html#mapper-annotations
+    # The annotation, then its string literals up to the first one holding ${...}
+    # (covers @Select("...") and @Select({"...", "..."})).
+    pattern-regex: '@(?:Select|Update|Insert|Delete)\s*\(\s*(?:value\s*=\s*)?\{?\s*(?:"[^"\n]*"\s*[+,]?\s*)*?"[^"\n]*\$\{[^}]+\}'

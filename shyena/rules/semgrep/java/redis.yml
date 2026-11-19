@@ -1,0 +1,78 @@
+# Redis as used from a Spring Boot service (Spring Data Redis, Spring Cache, Jedis, Lettuce).
+# Lua-script injection from request data is shyena.java.redis-lua-injection in request-taint.yml.
+rules:
+  - id: shyena.java.redis-jdk-serialization
+    message: >-
+      Values go into Redis with Java native serialization: JdkSerializationRedisSerializer
+      directly, or a RedisTemplate / RedisCacheConfiguration left on its default
+      serializer, which is JDK serialization. Whoever can write to that Redis (another
+      service, a leaked password, an exposed port) can then plant a gadget chain that
+      runs code in this application when it reads the key. Set a JSON or String
+      serializer: template.setDefaultSerializer(...) or
+      cacheConfig.serializeValuesWith(...), and use StringRedisTemplate where it fits.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      confidence: MEDIUM
+      references:
+        - https://docs.spring.io/spring-data/redis/reference/redis/template.html#redis:serializer
+    pattern-either:
+      - pattern: new JdkSerializationRedisSerializer(...)
+      - pattern: RedisSerializer.java(...)
+      - pattern: RedisSerializationContext.java(...)
+      # A RedisTemplate built in this method with no default or value serializer set.
+      - patterns:
+          - pattern-either:
+              - pattern: $T = new RedisTemplate<$K, $V>();
+              - pattern: $T = new RedisTemplate<>();
+          - pattern-not-inside: |
+              $T = new RedisTemplate<$K, $V>();
+              ...
+              $T.setDefaultSerializer(...);
+          - pattern-not-inside: |
+              $T = new RedisTemplate<$K, $V>();
+              ...
+              $T.setValueSerializer(...);
+          - pattern-not-inside: |
+              $T = new RedisTemplate<>();
+              ...
+              $T.setDefaultSerializer(...);
+          - pattern-not-inside: |
+              $T = new RedisTemplate<>();
+              ...
+              $T.setValueSerializer(...);
+      # A cache configuration that never sets a value serializer.
+      - patterns:
+          - pattern: RedisCacheConfiguration.defaultCacheConfig(...)
+          - pattern-not-inside: $CFG.serializeValuesWith(...)
+          - pattern-not-inside: |
+              $C = RedisCacheConfiguration.defaultCacheConfig(...);
+              ...
+              $C.serializeValuesWith(...);
+          - pattern-not-inside: |
+              $C = RedisCacheConfiguration.defaultCacheConfig(...);
+              ...
+              $D = $C.serializeValuesWith(...);
+
+  - id: shyena.java.redis-no-tls
+    message: >-
+      Redis is reached over plain TCP: a redis:// URL to a non-local host, or SSL
+      explicitly switched off. The Redis password and every cached value (sessions,
+      tokens, personal data) cross the network unencrypted. Use rediss:// or
+      spring.data.redis.ssl.enabled=true for any Redis that is not on localhost.
+    languages: [generic]
+    severity: WARNING
+    paths:
+      include: ["**/application*.properties", "**/application*.yml", "**/application*.yaml", "**/bootstrap*.properties", "**/bootstrap*.yml", "**/bootstrap*.yaml"]
+      exclude: ["**/application-dev*", "**/application-local*", "**/application-test*"]
+    metadata:
+      category: security
+      cwe: "CWE-319: Cleartext Transmission of Sensitive Information"
+      confidence: MEDIUM
+      references:
+        - https://docs.spring.io/spring-boot/reference/data/nosql.html#data.nosql.redis.connecting
+    pattern-either:
+      - pattern-regex: \bredis://(?:[^@\s"']*@)?(?!(localhost|127\.0\.0\.1|\[::1\])[:/\s"']|(localhost|127\.0\.0\.1)$)[^\s"'/]+
+      - pattern-regex: (?m)^[ \t]*spring\.(data\.)?redis\.ssl(\.enabled)?[ \t]*[=:][ \t]*false
